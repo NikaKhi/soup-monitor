@@ -1,75 +1,32 @@
-# React + TypeScript + Vite
+# Soup Training Run Monitor
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Deployed Link:** https://soup-monitor.vercel.app
 
-Currently, two official plugins are available:
+## Verdict: DON'T SHIP (В текущем виде)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+**Причина:** На графике нет явного визуального разрыва линии (пунктира) в местах, где были NaN или Infinity. Есть текстовое предупреждение, но при быстром взгляде на график кажется, что линия непрерывна и "здорова".
+**Что изменить первым:** Заменить пропущенные точки на явные красные маркеры или разрывы линии, чтобы человек, принимающий решение о $500, сразу видел проблему в данных, а не читал текст под графиком.
 
-## React Compiler
+## Performance (CPU 4x Throttling, 1M points)
+- **First render:** ~1200 ms (примерная цифра, мы замерим точнее)
+- **Zoom/Hover response:** ~50 ms
+- **Memory (Heap):** ~150 MB (примерная цифра)
+- *Что оптимизировали:* Использовали MinMax прореживание до 1000 точек (вместо 1M), вынесли очистку данных. Данные хранятся в массивах, а не в объектах (меньше памяти). Использовали uPlot, так как он рендерит в Canvas и не грузит DOM.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Silent Failures (Тихие ошибки)
+1. **Race Condition:** При быстром клике на разные run'ы старый запрос отменяется через `AbortController`. Проверено тестом (если данные от run-1 приходят позже run-2, они не перезапишут график).
+2. **Locale/Timezone:** Данные содержат время в ISO 8601 (UTC). На осях мы можем отображать время в UTC, чтобы не сбивать график с толку пользователей из разных часовых поясов.
+3. **Smoothing:** Мы **не применяем** smoothing (сглаживание) к loss по умолчанию. Сглаживание может скрыть divergence (расхождение). В тестах проверено, что пик (spike) виден на сырых данных.
+4. **Log scale с нулями:** В `dataCleaner.ts` точки с `<= 0` отфильтровываются, если будет включена логарифмическая шкала.
+5. **NaN/Infinity:** `cleanLoss` не превращает их в 0, а выкидывает, ставя флаг `hadNaN`. Линия не рисует ложный ноль.
 
-## Expanding the ESLint configuration
+## Что тесты НЕ ловят
+- **Субъективную видимость:** Если ось Y автоматически масштабируется, spike может быть в данных, но визуально сжат до незаметного состояния, если на графике есть другие выбросы.
+- **Сетевые задержки:** Тесты используют mock-данные, реальный race condition в сети может иметь другие тайминги.
+- **Кросс-браузерность Canvas:** Тесты проверяют данные и функции, но не то, как разные браузеры отрисовывают пиксели на canvas.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
-
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
+## AI Tools
+Использовал AI для: генерации boilerplate uPlot, подсказки по `verbatimModuleSyntax`.
+Принял: идею MinMax для downsampling.
+Изменил: AI предлагал использовать LTTB, но я отклонил его, так как он может пропустить одиночный spike.
+Проверил сам: написал тест на то, что spike выживает при 100, 500, 1000, 2000 бакетах.
