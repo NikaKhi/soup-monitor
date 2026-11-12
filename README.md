@@ -2,31 +2,32 @@
 
 **Deployed Link:** https://soup-monitor.vercel.app
 
-## Verdict: DON'T SHIP (В текущем виде)
+## Verdict: DON'T SHIP (In current state)
 
-**Причина:** На графике нет явного визуального разрыва линии (пунктира) в местах, где были NaN или Infinity. Есть текстовое предупреждение, но при быстром взгляде на график кажется, что линия непрерывна и "здорова". Также при миллионе точек с одиночным выбросом (spike) ось Y автоматически масштабируется под выброс, из-за чего основной график визуально сплющивается.
-**Что изменить первым:** Добавить визуальный разрыв линии на NaN и добавить переключатель логарифмической шкалы (log scale) для оси Y, чтобы видеть и обычный тренд, и выбросы одновременно.
+**Reason:** There is no explicit visual break (dashed line) in the chart where NaN or Infinity values occur. There is a text warning, but at a quick glance, the line seems continuous and "healthy". Additionally, when viewing 1M points with a single spike, the Y-axis auto-scales to fit the spike, which visually squishes the main trend.
+**What to change first:** Add visual breaks to the line on NaN values and add a log-scale toggle for the Y-axis so users can see both the normal trend and the spikes simultaneously.
 
 ## Performance (CPU 4x Throttling, 1M points)
 - **First render:** ~1278 ms (Scripting time from Performance trace)
 - **Zoom/Hover response:** < 50 ms
 - **Memory (Heap):** ~150 MB
-- *Что оптимизировали:* Использовали MinMax прореживание до 1000 точек (вместо 1M), вынесли очистку данных. Данные хранятся в массивах, а не в объектах (меньше памяти). Использовали uPlot, так как он рендерит в Canvas и не грузит DOM.
+- *Optimizations:* Implemented MinMax downsampling to 1000 points (instead of rendering 1M). Moved data cleaning outside the render loop. Used uPlot because it renders to Canvas (avoiding DOM bloat).
 
-## Silent Failures (Тихие ошибки)
-1. **Race Condition:** При быстром клике на разные run'ы старый запрос отменяется через `AbortController`. Проверено тестом (если данные от run-1 приходят позже run-2, они не перезапишут график).
-2. **Locale/Timezone:** Данные содержат время в ISO 8601 (UTC). На осях мы можем отображать время в UTC, чтобы не сбивать график с толку пользователей из разных часовых поясов.
-3. **Smoothing:** Мы **не применяем** smoothing (сглаживание) к loss по умолчанию. Сглаживание может скрыть divergence (расхождение). В тестах проверено, что пик (spike) виден на сырых данных.
-4. **Log scale с нулями:** В `dataCleaner.ts` точки с `<= 0` отфильтровываются, если будет включена логарифмическая шкала.
-5. **NaN/Infinity:** `cleanLoss` не превращает их в 0, а выкидывает, ставя флаг `hadNaN`. Линия не рисует ложный ноль.
+## Silent Failures
+1. **Race Condition:** When rapidly switching runs, the previous request is cancelled via `AbortController` in the `useEffect` cleanup.
+   *Note:* This is verified **manually** via DevTools Network throttling (fetch abortion). It is not covered by an automated test.
+2. **Locale/Timezone:** Data contains ISO 8601 timestamps (UTC). On the axes, we display time in UTC to avoid confusing users across different timezones.
+3. **Smoothing:** We do **not** apply smoothing to loss by default. Smoothing can hide divergence. Tests prove the spike is visible on raw data.
+4. **Log scale with zeros:** In `dataCleaner.ts`, points `<= 0` are filtered out to prevent `-Infinity` errors if a log scale is applied.
+5. **NaN/Infinity:** `cleanLoss` does not convert them to 0; it drops them and sets a `hadNaN` flag. The line does not draw a false zero.
 
-## Что тесты НЕ ловят
-- **Субъективную видимость:** Если ось Y автоматически масштабируется, spike может быть в данных, но визуально сжат до незаметного состояния, если на графике есть другие выбросы.
-- **Сетевые задержки:** Тесты используют mock-данные, реальный race condition в сети может иметь другие тайминги.
-- **Кросс-браузерность Canvas:** Тесты проверяют данные и функции, но не то, как разные браузеры отрисовывают пиксели на canvas.
+## What tests do NOT catch
+- **Subjective visibility:** If the Y-axis auto-scales, a spike might be present in the data but visually squished if there are other outliers.
+- **Network delays:** Tests use mock data; real-world race conditions may have different timings.
+- **Cross-browser Canvas rendering:** Tests verify data functions, but not how different browsers render pixels on the canvas.
 
 ## AI Tools
-Использовал AI для: генерации boilerplate uPlot, подсказки по `verbatimModuleSyntax`.
-Принял: идею MinMax для downsampling.
-Изменил: AI предлагал использовать LTTB, но я отклонил его, так как он может пропустить одиночный spike.
-Проверил сам: написал тест на то, что spike выживает при 100, 500, 1000, 2000 бакетах.
+Used AI for: generating uPlot boilerplate, debugging `verbatimModuleSyntax` errors.
+Accepted: The idea of MinMax for downsampling.
+Rejected: AI suggested LTTB downsampling, but I rejected it because it can skip a single spike.
+Verified myself: Wrote a test to prove the spike survives at 100, 500, 1000, and 2000 buckets.
